@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MathMaster Online</title>
+    <title>MathMaster Online Final</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -16,7 +16,7 @@
         import { getDatabase, ref, set, onValue, push, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
         
         // ==================================================================
-        // PASO IMPORTANTE: PEGA AQUÍ TU CONFIGURACIÓN DE FIREBASE
+        // 1. PEGA AQUÍ TUS CLAVES DE FIREBASE (Copia y pega del proyecto anterior)
         // ==================================================================
         const firebaseConfig = {
   apiKey: "AIzaSyCB76gVdcOJIss5qVG6ndZEG4Yqr-dTsk0",
@@ -31,13 +31,13 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
-        window.db = db; // Hacer db global para React
+        window.db = db;
         window.fbRef = ref;
         window.fbSet = set;
         window.fbOnValue = onValue;
         window.fbPush = push;
         window.fbRemove = remove;
-        window.appLoaded = true; // Señal de carga
+        window.appLoaded = true;
     </script>
 
     <style>
@@ -51,7 +51,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         // --- ICONOS ---
         const Icon = ({ d, size = 20, className = "" }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d={d} /></svg>;
@@ -65,57 +65,23 @@
             X: (p) => <Icon {...p} d="M18 6L6 18M6 6l12 12" />
         };
 
-        // --- LÓGICA DE BASE DE DATOS (FIREBASE WRAPPER) ---
+        // --- FIREBASE LOGIC ---
         const useCloud = () => {
             const [status, setStatus] = useState('loading');
-
             useEffect(() => {
-                const check = setInterval(() => {
-                    if (window.appLoaded) {
-                        setStatus('ready');
-                        clearInterval(check);
-                    }
-                }, 100);
+                const check = setInterval(() => { if (window.appLoaded) { setStatus('ready'); clearInterval(check); } }, 100);
             }, []);
-
-            const saveQuiz = (quiz) => {
-                const quizRef = window.fbRef(window.db, 'quizzes/' + quiz.id);
-                window.fbSet(quizRef, quiz);
-            };
-
-            const deleteQuiz = (id) => {
-                const quizRef = window.fbRef(window.db, 'quizzes/' + id);
-                window.fbRemove(quizRef);
-            };
-
-            const activateSession = (sessionCode, quizId) => {
-                window.fbSet(window.fbRef(window.db, 'sessions/' + sessionCode), {
-                    activeQuizId: quizId,
-                    status: 'active',
-                    timestamp: Date.now()
-                });
-            };
-
-            const submitScore = (sessionCode, studentName, score, total) => {
-                const resultRef = window.fbPush(window.fbRef(window.db, `results/${sessionCode}`));
-                window.fbSet(resultRef, {
-                    name: studentName,
-                    score: score,
-                    total: total,
-                    timestamp: Date.now()
-                });
-            };
-
+            const saveQuiz = (quiz) => window.fbSet(window.fbRef(window.db, 'quizzes/' + quiz.id), quiz);
+            const deleteQuiz = (id) => window.fbRemove(window.fbRef(window.db, 'quizzes/' + id));
+            const activateSession = (code, quizId) => window.fbSet(window.fbRef(window.db, 'sessions/' + code), { activeQuizId: quizId, status: 'active', timestamp: Date.now() });
+            const submitScore = (code, name, score, total) => window.fbPush(window.fbRef(window.db, `results/${code}`), { name, score, total, timestamp: Date.now() });
             return { status, saveQuiz, deleteQuiz, activateSession, submitScore };
         };
 
-        // --- COMPONENTES UI ---
-
+        // --- COMPONENTES ---
         const MathKeypad = ({ onInsert }) => (
             <div className="flex flex-wrap gap-2 mb-3 p-2 bg-slate-100 rounded border">
-                {['x²','x³','√','π','∞','÷','×','∫','∑'].map(s => 
-                    <button key={s} onClick={()=>onInsert(s.replace('x',''))} className="bg-white px-3 py-1 rounded shadow text-indigo-700 font-bold">{s}</button>
-                )}
+                {['x²','x³','√','π','∞','÷','×','∫','∑'].map(s => <button key={s} onClick={()=>onInsert(s.replace('x',''))} className="bg-white px-3 py-1 rounded shadow text-indigo-700 font-bold hover:bg-indigo-50">{s}</button>)}
             </div>
         );
 
@@ -123,12 +89,43 @@
             const [localQuiz, setLocalQuiz] = useState(quiz);
             const [tempQ, setTempQ] = useState({ text: '', imageUrl: null, points: 1, options: ['',''], optionImages:[null,null], correct: 0 });
             const [isEditing, setIsEditing] = useState(false);
+            const [editIdx, setEditIdx] = useState(null);
 
             const handleSaveQ = () => {
-                const newQs = [...localQuiz.questions];
-                newQs.push(tempQ);
+                if(!tempQ.text && !tempQ.imageUrl) return alert("Escribe texto o sube imagen");
+                const newQs = [...(localQuiz.questions || [])];
+                if (editIdx !== null) newQs[editIdx] = tempQ;
+                else newQs.push(tempQ);
                 setLocalQuiz({...localQuiz, questions: newQs});
+                resetForm();
+            };
+
+            // --- AQUÍ ESTÁ LA CORRECCIÓN IMPORTANTE PARA EDITAR ---
+            const handleEditQ = (q, index) => {
+                // Rellenamos datos faltantes por si es una pregunta antigua sin imágenes
+                setTempQ({
+                    text: q.text || '',
+                    imageUrl: q.imageUrl || null,
+                    points: q.points || 1,
+                    options: q.options || ['', ''],
+                    optionImages: q.optionImages || new Array(q.options ? q.options.length : 2).fill(null),
+                    correct: q.correct || 0
+                });
+                setEditIdx(index);
+                setIsEditing(true);
+            };
+            // -----------------------------------------------------
+
+            const handleDeleteQ = (index) => {
+                if(confirm("¿Eliminar esta pregunta?")) {
+                    const newQs = localQuiz.questions.filter((_, i) => i !== index);
+                    setLocalQuiz({...localQuiz, questions: newQs});
+                }
+            };
+
+            const resetForm = () => {
                 setIsEditing(false);
+                setEditIdx(null);
                 setTempQ({ text: '', imageUrl: null, points: 1, options: ['',''], optionImages:[null,null], correct: 0 });
             };
 
@@ -140,55 +137,94 @@
             return (
                 <div className="min-h-screen bg-white p-4 animate-in">
                     <div className="max-w-2xl mx-auto">
-                        <div className="flex justify-between items-center mb-4">
-                            <button onClick={onCancel} className="text-gray-500">Cancelar</button>
-                            <h2 className="font-bold text-xl">Editor</h2>
-                            <button onClick={()=>onSave(localQuiz)} className="bg-green-600 text-white px-4 py-1 rounded">Guardar</button>
+                        <div className="flex justify-between items-center mb-4 bg-indigo-50 p-4 rounded-lg">
+                            <button onClick={onCancel} className="text-gray-500 hover:text-gray-800">Cancelar</button>
+                            <h2 className="font-bold text-xl text-indigo-900">Editor de Examen</h2>
+                            <button onClick={()=>onSave(localQuiz)} className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-green-700">Guardar Todo</button>
                         </div>
-                        <input className="w-full text-2xl font-bold border-b mb-4 outline-none" placeholder="Título" value={localQuiz.title} onChange={e=>setLocalQuiz({...localQuiz, title: e.target.value})} />
+                        
+                        <input className="w-full text-2xl font-bold border-b mb-6 outline-none py-2" placeholder="Título del Examen" value={localQuiz.title} onChange={e=>setLocalQuiz({...localQuiz, title: e.target.value})} />
                         
                         {isEditing ? (
-                            <div className="border p-4 rounded-xl shadow-lg">
-                                <MathKeypad onInsert={s => setTempQ({...tempQ, text: tempQ.text + s})} />
-                                <div className="flex gap-2 mb-2">
-                                    <textarea className="w-full border p-2 rounded" placeholder="Pregunta..." value={tempQ.text} onChange={e=>setTempQ({...tempQ, text: e.target.value})} />
-                                    <label className="border-2 border-dashed w-20 flex items-center justify-center cursor-pointer">
-                                        {tempQ.imageUrl ? <img src={tempQ.imageUrl} className="h-full w-full object-cover"/> : <Icons.Image/>}
-                                        <input type="file" className="hidden" onChange={e=>handleImage(e, d=>setTempQ({...tempQ, imageUrl: d}))} />
-                                    </label>
-                                </div>
-                                <div className="flex items-center gap-2 mb-4">
-                                    <span className="font-bold text-sm">Puntos:</span>
-                                    <input type="number" className="border w-16 text-center" value={tempQ.points} onChange={e=>setTempQ({...tempQ, points: e.target.value})} />
-                                </div>
-                                {tempQ.options.map((o, i) => (
-                                    <div key={i} className="flex items-center gap-2 mb-2">
-                                        <input type="radio" checked={tempQ.correct === i} onChange={()=>setTempQ({...tempQ, correct: i})} />
-                                        <input className="border-b w-full" value={o} onChange={e=>{
-                                            const ops = [...tempQ.options]; ops[i] = e.target.value; setTempQ({...tempQ, options: ops});
-                                        }} placeholder={`Opción ${i+1}`} />
-                                        <label className="cursor-pointer text-gray-400 hover:text-blue-500">
-                                            <Icons.Image size={16} className={tempQ.optionImages[i] ? "text-green-500" : ""} />
-                                            <input type="file" className="hidden" onChange={e=>handleImage(e, d=>{
-                                                const imgs = [...tempQ.optionImages]; imgs[i]=d; setTempQ({...tempQ, optionImages: imgs});
-                                            })} />
-                                        </label>
+                            <div className="border-2 border-indigo-100 p-6 rounded-xl shadow-lg bg-white">
+                                <div className="flex justify-between mb-4">
+                                    <h3 className="font-bold text-gray-700">{editIdx !== null ? 'Editar Pregunta' : 'Nueva Pregunta'}</h3>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-bold">Puntos:</span>
+                                        <input type="number" className="border w-16 text-center p-1 rounded" value={tempQ.points} onChange={e=>setTempQ({...tempQ, points: e.target.value})} />
                                     </div>
-                                ))}
-                                <button onClick={()=>setTempQ({...tempQ, options:[...tempQ.options, ''], optionImages:[...tempQ.optionImages, null]})} className="text-blue-500 text-sm">+ Opción</button>
-                                <div className="mt-4 flex gap-2">
-                                    <button onClick={handleSaveQ} className="bg-indigo-600 text-white px-4 py-2 rounded w-full">Añadir Pregunta</button>
+                                </div>
+
+                                <MathKeypad onInsert={s => setTempQ({...tempQ, text: tempQ.text + s})} />
+                                
+                                <div className="flex gap-4 mb-4">
+                                    <textarea className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" rows="3" placeholder="Escribe la pregunta..." value={tempQ.text} onChange={e=>setTempQ({...tempQ, text: e.target.value})} />
+                                    <div className="w-24 shrink-0">
+                                        <label className="border-2 border-dashed w-full h-full flex flex-col items-center justify-center cursor-pointer rounded-lg hover:bg-gray-50">
+                                            {tempQ.imageUrl ? <img src={tempQ.imageUrl} className="h-full w-full object-cover rounded-lg"/> : <div className="text-center text-xs text-gray-400"><Icons.Image size={24}/><br/>Imagen</div>}
+                                            <input type="file" className="hidden" onChange={e=>handleImage(e, d=>setTempQ({...tempQ, imageUrl: d}))} />
+                                        </label>
+                                        {tempQ.imageUrl && <button onClick={()=>setTempQ({...tempQ, imageUrl: null})} className="text-xs text-red-500 w-full text-center mt-1">Borrar</button>}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 mb-4">
+                                    {tempQ.options.map((o, i) => (
+                                        <div key={i} className="flex items-center gap-3 bg-gray-50 p-2 rounded-lg border">
+                                            <input type="radio" checked={tempQ.correct === i} onChange={()=>setTempQ({...tempQ, correct: i})} className="w-5 h-5 accent-green-600" />
+                                            <div className="flex-1">
+                                                <input className="bg-transparent border-b w-full outline-none text-sm pb-1" value={o} onChange={e=>{
+                                                    const ops = [...tempQ.options]; ops[i] = e.target.value; setTempQ({...tempQ, options: ops});
+                                                }} placeholder={`Opción ${i+1}`} />
+                                            </div>
+                                            <label className="cursor-pointer text-gray-400 hover:text-blue-500 relative">
+                                                <Icons.Image size={20} className={tempQ.optionImages[i] ? "text-green-500" : ""} />
+                                                <input type="file" className="hidden" onChange={e=>handleImage(e, d=>{
+                                                    const imgs = [...tempQ.optionImages]; imgs[i]=d; setTempQ({...tempQ, optionImages: imgs});
+                                                })} />
+                                            </label>
+                                            {tempQ.options.length > 2 && (
+                                                <button onClick={()=>{
+                                                    const ops = tempQ.options.filter((_,x)=>x!==i);
+                                                    const imgs = tempQ.optionImages.filter((_,x)=>x!==i);
+                                                    setTempQ({...tempQ, options: ops, optionImages: imgs, correct: 0});
+                                                }} className="text-red-400 hover:text-red-600"><Icons.X size={18}/></button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <button onClick={()=>setTempQ({...tempQ, options:[...tempQ.options, ''], optionImages:[...tempQ.optionImages, null]})} className="text-indigo-600 text-sm font-bold hover:underline">+ Añadir Opción</button>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <button onClick={handleSaveQ} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold w-full shadow hover:bg-indigo-700">
+                                        {editIdx !== null ? 'Actualizar Pregunta' : 'Añadir Pregunta'}
+                                    </button>
+                                    <button onClick={resetForm} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>
                                 </div>
                             </div>
                         ) : (
-                            <div>
-                                {localQuiz.questions.map((q, i) => (
-                                    <div key={i} className="p-2 border mb-2 rounded flex justify-between">
-                                        <span>#{i+1} {q.text || "(Imagen)"}</span>
-                                        <span className="text-xs bg-gray-200 px-2 rounded pt-1">{q.points} pts</span>
+                            <div className="space-y-3">
+                                {(!localQuiz.questions || localQuiz.questions.length === 0) && <p className="text-center text-gray-400 py-8 border-2 border-dashed rounded-lg">No hay preguntas. ¡Agrega una!</p>}
+                                
+                                {(localQuiz.questions || []).map((q, i) => (
+                                    <div key={i} className="p-4 bg-white border rounded-xl shadow-sm flex justify-between items-center hover:shadow-md transition">
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <span className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-xs font-bold">#{i+1}</span>
+                                            <div className="flex flex-col">
+                                                <span className="font-medium text-gray-800 truncate max-w-xs">{q.text || "(Imagen)"}</span>
+                                                <span className="text-xs text-gray-500">{q.points} Puntos</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={()=>handleEditQ(q, i)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Editar"><Icons.Edit size={20} /></button>
+                                            <button onClick={()=>handleDeleteQ(i)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition" title="Eliminar"><Icons.Trash size={20} /></button>
+                                        </div>
                                     </div>
                                 ))}
-                                <button onClick={()=>setIsEditing(true)} className="w-full border-2 border-dashed py-3 text-gray-400 rounded font-bold">+ Agregar Pregunta</button>
+                                
+                                <button onClick={()=>{resetForm(); setIsEditing(true);}} className="w-full py-4 border-2 border-dashed border-indigo-300 text-indigo-600 rounded-xl font-bold hover:bg-indigo-50 transition mt-6 flex items-center justify-center gap-2">
+                                    <span className="text-2xl">+</span> Agregar Nueva Pregunta
+                                </button>
                             </div>
                         )}
                     </div>
@@ -196,56 +232,39 @@
             );
         };
 
+        // --- LOBBY & DASHBOARD ---
         const LiveDashboard = ({ sessionCode, quiz, onExit }) => {
             const [students, setStudents] = useState([]);
-
             useEffect(() => {
-                const resultsRef = window.fbRef(window.db, `results/${sessionCode}`);
-                const unsub = window.fbOnValue(resultsRef, (snap) => {
-                    const data = snap.val();
-                    if (data) setStudents(Object.values(data));
-                    else setStudents([]);
+                const unsub = window.fbOnValue(window.fbRef(window.db, `results/${sessionCode}`), (snap) => {
+                    setStudents(snap.val() ? Object.values(snap.val()) : []);
                 });
-                return () => unsub(); // Cleanup
+                return () => unsub();
             }, [sessionCode]);
 
             return (
                 <div className="min-h-screen bg-slate-900 text-white p-6 animate-in">
                     <div className="max-w-4xl mx-auto">
                         <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
-                            <div>
-                                <h2 className="text-sm text-slate-400 uppercase tracking-wider">Sala en Vivo</h2>
-                                <h1 className="text-4xl font-bold text-blue-400 tracking-widest">{sessionCode}</h1>
-                            </div>
-                            <button onClick={onExit} className="bg-red-600 px-4 py-2 rounded font-bold hover:bg-red-700">Finalizar Clase</button>
+                            <div><h2 className="text-sm text-slate-400 uppercase">Sala en Vivo</h2><h1 className="text-4xl font-bold text-blue-400">{sessionCode}</h1></div>
+                            <button onClick={onExit} className="bg-red-600 px-4 py-2 rounded font-bold">Finalizar</button>
                         </div>
-
                         <div className="grid md:grid-cols-2 gap-8">
                             <div className="bg-slate-800 p-6 rounded-xl">
-                                <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><Icons.Wifi className="text-green-400"/> En Línea ({students.length})</h3>
-                                {students.length === 0 ? (
-                                    <p className="text-slate-500 italic">Esperando alumnos...</p>
-                                ) : (
-                                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                                        {students.sort((a,b) => b.score - a.score).map((s, i) => (
-                                            <div key={i} className="flex justify-between items-center bg-slate-700 p-3 rounded border-l-4 border-blue-500">
-                                                <span className="font-bold text-lg">{s.name}</span>
-                                                <div className="text-right">
-                                                    <span className="text-2xl font-bold text-blue-300">{s.score}</span>
-                                                    <span className="text-xs text-slate-400"> / {s.total} pts</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                <h3 className="text-xl font-bold mb-4 text-green-400">Resultados ({students.length})</h3>
+                                <div className="space-y-2 max-h-96 overflow-y-auto">
+                                    {students.sort((a,b)=>b.score-a.score).map((s, i)=>(
+                                        <div key={i} className="flex justify-between bg-slate-700 p-3 rounded border-l-4 border-blue-500">
+                                            <span className="font-bold">{s.name}</span>
+                                            <span>{s.score}/{s.total}</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                             <div className="bg-slate-800 p-6 rounded-xl text-center">
                                 <h3 className="text-xl font-bold mb-2">Examen Activo</h3>
                                 <p className="text-2xl text-indigo-300 mb-4">{quiz.title}</p>
-                                <div className="p-4 bg-slate-700 rounded">
-                                    <p className="text-sm text-slate-300">Dile a tus estudiantes que ingresen:</p>
-                                    <p className="text-xl font-mono mt-2">Código: <span className="text-yellow-400 font-bold">{sessionCode}</span></p>
-                                </div>
+                                <div className="p-4 bg-slate-700 rounded"><p className="text-sm text-slate-300">Código para alumnos:</p><p className="text-4xl font-mono mt-2 text-yellow-400 font-bold tracking-widest">{sessionCode}</p></div>
                             </div>
                         </div>
                     </div>
@@ -257,92 +276,48 @@
             const [code, setCode] = useState('');
             const [name, setName] = useState('');
             const [error, setError] = useState('');
-
             const handleJoin = () => {
-                if(!code || !name) return setError("Completa ambos campos");
-                const sessionRef = window.fbRef(window.db, `sessions/${code}`);
-                window.fbOnValue(sessionRef, (snap) => {
-                    if (snap.exists() && snap.val().status === 'active') {
-                        onJoin(code, name, snap.val().activeQuizId);
-                    } else {
-                        setError("Código inválido o clase cerrada");
-                    }
+                if(!code || !name) return setError("Completa todo");
+                window.fbOnValue(window.fbRef(window.db, `sessions/${code}`), (snap) => {
+                    if (snap.exists() && snap.val().status === 'active') onJoin(code, name, snap.val().activeQuizId);
+                    else setError("Código inválido o cerrado");
                 }, { onlyOnce: true });
             };
-
             return (
                 <div className="min-h-screen bg-blue-600 flex items-center justify-center p-4 animate-in">
                     <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md text-center">
-                        <h1 className="text-3xl font-black text-blue-900 mb-2">MathMaster</h1>
-                        <p className="text-gray-500 mb-6">Ingresa a tu clase</p>
-                        <input className="w-full p-4 bg-gray-100 rounded-xl mb-3 font-bold text-center uppercase text-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="CÓDIGO DE SALA" value={code} onChange={e=>setCode(e.target.value.toUpperCase())} />
-                        <input className="w-full p-4 bg-gray-100 rounded-xl mb-6 font-medium text-center outline-none focus:ring-2 focus:ring-blue-500" placeholder="Tu Nombre" value={name} onChange={e=>setName(e.target.value)} />
+                        <h1 className="text-3xl font-black text-blue-900 mb-6">MathMaster</h1>
+                        <input className="w-full p-4 bg-gray-100 rounded-xl mb-3 text-center text-xl uppercase font-bold" placeholder="CÓDIGO" value={code} onChange={e=>setCode(e.target.value.toUpperCase())} />
+                        <input className="w-full p-4 bg-gray-100 rounded-xl mb-6 text-center font-bold" placeholder="Tu Nombre" value={name} onChange={e=>setName(e.target.value)} />
                         {error && <p className="text-red-500 mb-4 font-bold">{error}</p>}
-                        <button onClick={handleJoin} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-blue-700 transform transition active:scale-95">Entrar</button>
+                        <button onClick={handleJoin} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-blue-700">Entrar a Clase</button>
                     </div>
                 </div>
             );
         };
 
-        // --- APP PRINCIPAL ---
+        // --- APP MAIN ---
         function App() {
             const cloud = useCloud();
-            const [view, setView] = useState('home'); // home, tutor, editor, lobby, quiz, live
+            const [view, setView] = useState('home');
             const [quizzes, setQuizzes] = useState([]);
-            
-            // Estado Tutor
             const [activeQuizData, setActiveQuizData] = useState(null);
             const [liveCode, setLiveCode] = useState('');
-
-            // Estado Estudiante
             const [studentName, setStudentName] = useState('');
             const [studentQuiz, setStudentQuiz] = useState(null);
             
             useEffect(() => {
-                if (cloud.status === 'ready') {
-                    const qRef = window.fbRef(window.db, 'quizzes');
-                    window.fbOnValue(qRef, (snap) => {
-                        const data = snap.val();
-                        if (data) setQuizzes(Object.values(data));
-                        else setQuizzes([]);
-                    });
-                }
+                if (cloud.status === 'ready') window.fbOnValue(window.fbRef(window.db, 'quizzes'), (s) => setQuizzes(s.val() ? Object.values(s.val()) : []));
             }, [cloud.status]);
 
-            const launchClass = (quiz) => {
-                const code = Math.random().toString(36).substring(2, 7).toUpperCase();
-                cloud.activateSession(code, quiz.id);
-                setActiveQuizData(quiz);
-                setLiveCode(code);
-                setView('live');
-            };
-
-            const joinClass = (code, name, quizId) => {
-                setLiveCode(code);
-                setStudentName(name);
-                // Buscar el quiz en la DB
-                const qRef = window.fbRef(window.db, `quizzes/${quizId}`);
-                window.fbOnValue(qRef, (snap) => {
-                    if(snap.exists()) {
-                        setStudentQuiz(snap.val());
-                        setView('quiz');
-                    }
-                }, { onlyOnce: true });
-            };
-
-            // --- RENDERS ---
             if (cloud.status === 'loading') return <div className="min-h-screen flex items-center justify-center"><div className="loader"></div></div>;
 
             if (view === 'home') return (
                 <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-purple-700 flex flex-col items-center justify-center p-4 text-white animate-in">
                     <h1 className="text-5xl font-black mb-8">MathMaster Online</h1>
                     <div className="grid gap-4 w-full max-w-md">
-                        <button onClick={()=>setView('lobby')} className="bg-white text-indigo-700 p-6 rounded-2xl font-bold text-xl shadow-xl hover:scale-105 transition flex items-center justify-center gap-3">
-                            <Icons.User /> Soy Estudiante
-                        </button>
-                        <button onClick={()=>setView('tutor')} className="bg-indigo-900 border border-indigo-400 text-white p-6 rounded-2xl font-bold text-xl shadow-xl hover:scale-105 transition">
-                            Soy Profesor
-                        </button>
+                        <button onClick={()=>setView('lobby')} className="bg-white text-indigo-700 p-6 rounded-2xl font-bold text-xl shadow-xl hover:scale-105 transition flex items-center justify-center gap-3"><Icons.User /> Soy Estudiante</button>
+                        <button onClick={()=>setView('tutor')} className="bg-indigo-900 border border-indigo-400 text-white p-6 rounded-2xl font-bold text-xl shadow-xl hover:scale-105 transition">Soy Profesor</button>
                     </div>
                 </div>
             );
@@ -350,24 +325,20 @@
             if (view === 'tutor') return (
                 <div className="min-h-screen bg-gray-50 p-6 animate-in">
                     <div className="max-w-4xl mx-auto">
-                        <button onClick={()=>setView('home')} className="mb-6 text-gray-500 font-bold">← Volver</button>
+                        <button onClick={()=>setView('home')} className="mb-6 font-bold text-gray-500">← Volver</button>
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-3xl font-bold text-gray-800">Mis Exámenes</h2>
-                            <button onClick={()=>{setActiveQuizData({id:Date.now(), title:'', questions:[]}); setView('editor')}} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow">
-                                + Crear Nuevo
-                            </button>
+                            <button onClick={()=>{setActiveQuizData({id:Date.now(), title:'', questions:[]}); setView('editor')}} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow">+ Crear Nuevo</button>
                         </div>
                         <div className="grid gap-4">
                             {quizzes.map(q => (
                                 <div key={q.id} className="bg-white p-6 rounded-xl shadow flex justify-between items-center">
-                                    <div>
-                                        <h3 className="font-bold text-xl">{q.title}</h3>
-                                        <p className="text-gray-500">{q.questions.length} preguntas</p>
-                                    </div>
+                                    <div><h3 className="font-bold text-xl">{q.title}</h3><p className="text-gray-500">{(q.questions||[]).length} preguntas</p></div>
                                     <div className="flex gap-2">
-                                        <button onClick={()=>launchClass(q)} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-600 flex items-center gap-2">
-                                            <Icons.Wifi /> LANZAR EN VIVO
-                                        </button>
+                                        <button onClick={()=>{
+                                            const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+                                            cloud.activateSession(code, q.id); setActiveQuizData(q); setLiveCode(code); setView('live');
+                                        }} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-600 flex items-center gap-2"><Icons.Wifi /> LANZAR</button>
                                         <button onClick={()=>{setActiveQuizData(q); setView('editor')}} className="bg-gray-100 text-blue-600 p-3 rounded-lg"><Icons.Edit/></button>
                                         <button onClick={()=>{if(confirm('Borrar?')) cloud.deleteQuiz(q.id)}} className="bg-red-50 text-red-500 p-3 rounded-lg"><Icons.Trash/></button>
                                     </div>
@@ -379,37 +350,24 @@
             );
 
             if (view === 'editor') return <Editor quiz={activeQuizData} onSave={(q)=>{cloud.saveQuiz(q); setView('tutor');}} onCancel={()=>setView('tutor')} />;
-
             if (view === 'live') return <LiveDashboard sessionCode={liveCode} quiz={activeQuizData} onExit={()=>setView('tutor')} />;
-
-            if (view === 'lobby') return <StudentLobby onJoin={joinClass} />;
+            if (view === 'lobby') return <StudentLobby onJoin={(c, n, qId) => { setLiveCode(c); setStudentName(n); window.fbOnValue(window.fbRef(window.db, `quizzes/${qId}`), s=>{setStudentQuiz(s.val()); setView('quiz')}, {onlyOnce:true}); }} />;
 
             if (view === 'quiz') {
-                // Mini componente interno para el estudiante tomando el examen
-                const QuizTaker = ({ quiz, studentName, onSubmit }) => {
+                const QuizTaker = ({ quiz, onSubmit }) => {
                     const [idx, setIdx] = useState(0);
                     const [score, setScore] = useState(0);
                     const q = quiz.questions[idx];
-
                     const handleAns = (i) => {
-                        const isCorrect = i === q.correct;
-                        const pts = isCorrect ? parseInt(q.points) : 0;
-                        const newScore = score + pts;
+                        const newScore = score + (i === q.correct ? parseInt(q.points) : 0);
                         setScore(newScore);
-                        if(idx + 1 < quiz.questions.length) {
-                            setIdx(idx + 1);
-                        } else {
-                            onSubmit(newScore);
-                        }
+                        if(idx + 1 < quiz.questions.length) setIdx(idx + 1);
+                        else onSubmit(newScore);
                     };
-                    
                     return (
                         <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 animate-in">
                             <div className="max-w-2xl w-full bg-white p-6 rounded-2xl shadow-xl">
-                                <div className="flex justify-between mb-4 font-bold text-gray-500">
-                                    <span>Pregunta {idx+1}/{quiz.questions.length}</span>
-                                    <span>{studentName}</span>
-                                </div>
+                                <div className="flex justify-between mb-4 font-bold text-gray-500"><span>{idx+1}/{quiz.questions.length}</span><span>{studentName}</span></div>
                                 <div className="h-2 bg-gray-200 mb-6 rounded"><div className="h-full bg-blue-500 transition-all" style={{width: `${(idx/quiz.questions.length)*100}%`}}></div></div>
                                 {q.imageUrl && <img src={q.imageUrl} className="h-48 w-full object-contain mb-4 rounded border"/>}
                                 <h2 className="text-2xl font-bold mb-6">{q.text}</h2>
@@ -417,10 +375,7 @@
                                     {q.options.map((o, i) => (
                                         <button key={i} onClick={()=>handleAns(i)} className="text-left p-4 border-2 rounded-xl hover:bg-blue-50 hover:border-blue-500 font-medium flex items-center gap-3">
                                             <span className="bg-gray-200 w-8 h-8 flex items-center justify-center rounded-full font-bold">{String.fromCharCode(65+i)}</span>
-                                            <div className="flex-1">
-                                                {q.optionImages && q.optionImages[i] && <img src={q.optionImages[i]} className="h-20 rounded mb-2 border"/>}
-                                                {o}
-                                            </div>
+                                            <div className="flex-1">{q.optionImages && q.optionImages[i] && <img src={q.optionImages[i]} className="h-20 rounded mb-2 border"/>}{o}</div>
                                         </button>
                                     ))}
                                 </div>
@@ -428,15 +383,12 @@
                         </div>
                     );
                 };
-                
-                return <QuizTaker quiz={studentQuiz} studentName={studentName} onSubmit={(finalScore)=>{
+                return <QuizTaker quiz={studentQuiz} onSubmit={(sc)=>{
                     const total = studentQuiz.questions.reduce((a,b)=>a+(parseInt(b.points)||0),0);
-                    cloud.submitScore(liveCode, studentName, finalScore, total);
-                    alert(`¡Terminado! Tu puntaje: ${finalScore}/${total}`);
-                    setView('home');
+                    cloud.submitScore(liveCode, studentName, sc, total);
+                    alert(`Finalizado: ${sc}/${total}`); setView('home');
                 }} />;
             }
-
             return null;
         }
 
